@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Black Hole Visualiser</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: #000;
+    overflow: hidden;
+    font-family: 'Share Tech Mono', monospace;
+    color: #aacce0;
+    cursor: none;
+  }
+
+  canvas { position:fixed; top:0; left:0; }
+
+  #uiCanvas { z-index:2; pointer-events:none; }
+  #glCanvas  { z-index:1; }
+
+  /* HUD */
+  .hud {
+    position: fixed;
+    z-index: 10;
+    pointer-events: none;
+  }
+
+  .hud-top {
+    top: 0; left: 0; right: 0;
+    padding: 18px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
+  }
+
+  .title {
+    font-family: 'Orbitron', monospace;
+    font-size: 15px;
+    font-weight: 900;
+    letter-spacing: 4px;
+    color: #fff;
+    text-shadow: 0 0 20px rgba(255,140,0,0.6);
+  }
+
+  .title span { color: #ff8c00; }
+
+  .hud-stats {
+    display: flex;
+    gap: 28px;
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: rgba(180,210,240,0.6);
+  }
+
+  .stat { display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
+  .stat-label { font-size:8px; opacity:0.5; }
+  .stat-val { color: #ff8c00; font-size:11px; }
+
+  /* Controls panel */
+  .controls {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    background: rgba(0,0,0,0.75);
+    border: 1px solid rgba(255,140,0,0.2);
+    border-radius: 40px;
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    backdrop-filter: blur(12px);
+    pointer-events: all;
+  }
+
+  .ctrl-label {
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: rgba(255,140,0,0.6);
+    text-transform: uppercase;
+  }
+
+  .ctrl-slider {
+    -webkit-appearance: none;
+    width: 140px; height: 3px;
+    border-radius: 2px;
+    background: rgba(255,140,0,0.2);
+    outline: none;
+  }
+
+  .ctrl-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: #ff8c00;
+    cursor: pointer;
+    box-shadow: 0 0 10px rgba(255,140,0,0.8);
+  }
+
+  .ctrl-val {
+    font-size: 11px;
+    color: #ff8c00;
+    min-width: 36px;
+  }
+
+  .ctrl-sep { width:1px; height:20px; background: rgba(255,140,0,0.15); }
+
+  .ctrl-btn {
+    background: none;
+    border: 1px solid rgba(255,140,0,0.3);
+    border-radius: 20px;
+    padding: 5px 14px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: rgba(255,140,0,0.7);
+    cursor: pointer;
+    transition: all 0.2s;
+    pointer-events: all;
+  }
+
+  .ctrl-btn:hover { border-color: #ff8c00; color: #ff8c00; }
+  .ctrl-btn.active { background: rgba(255,140,0,0.15); border-color: #ff8c00; color: #ff8c00; }
+
+  /* Info panel */
+  .info-panel {
+    position: fixed;
+    right: 24px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 10;
+    width: 220px;
+    background: rgba(0,0,0,0.7);
+    border: 1px solid rgba(255,140,0,0.15);
+    border-radius: 12px;
+    padding: 18px;
+    backdrop-filter: blur(12px);
+    pointer-events: none;
+  }
+
+  .info-title {
+    font-family: 'Orbitron', monospace;
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: #ff8c00;
+    margin-bottom: 14px;
+    opacity: 0.8;
+  }
+
+  .info-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(255,140,0,0.07);
+    font-size: 9px;
+  }
+
+  .info-row:last-child { border:none; }
+  .info-key { color: rgba(180,210,240,0.4); letter-spacing:1px; }
+  .info-val { color: rgba(180,210,240,0.8); }
+
+  .drag-hint {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: rgba(255,140,0,0.35);
+    z-index: 10;
+    pointer-events: none;
+    animation: fadeHint 6s ease forwards;
+  }
+
+  @keyframes fadeHint {
+    0%{opacity:0} 10%{opacity:1} 70%{opacity:1} 100%{opacity:0}
+  }
+</style>
+</head>
+<body>
+
+<!-- Two canvases: background lensing effect + UI overlay -->
+<canvas id="glCanvas"></canvas>
+<canvas id="uiCanvas"></canvas>
+
+<div class="hud">
+  <div class="hud-top hud">
+    <div class="title">BLACK<span>·</span>HOLE</div>
+    <div class="hud-stats">
+      <div class="stat">
+        <span class="stat-label">SCHWARZSCHILD RADIUS</span>
+        <span class="stat-val" id="rsVal">120 px</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">PHOTON SPHERE</span>
+        <span class="stat-val" id="psVal">180 px</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">MASS</span>
+        <span class="stat-val" id="massVal">1.0 M☉×10⁶</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Info panel -->
+<div class="info-panel">
+  <div class="info-title">PHYSICS</div>
+  <div class="info-row"><span class="info-key">EVENT HORIZON</span><span class="info-val">r = 2GM/c²</span></div>
+  <div class="info-row"><span class="info-key">PHOTON SPHERE</span><span class="info-val">r = 3GM/c²</span></div>
+  <div class="info-row"><span class="info-key">LENSING</span><span class="info-val">GR deflection</span></div>
+  <div class="info-row"><span class="info-key">ACCRETION</span><span class="info-val">Doppler shift</span></div>
+  <div class="info-row"><span class="info-key">INNERMOST ORBIT</span><span class="info-val">r = 6GM/c²</span></div>
+</div>
+
+<!-- Controls -->
+<div class="controls">
+  <span class="ctrl-label">MASS</span>
+  <input type="range" class="ctrl-slider" id="massSlider" min="0.3" max="3" step="0.05" value="1">
+  <span class="ctrl-val" id="massDisplay">1.0×</span>
+  <div class="ctrl-sep"></div>
+  <span class="ctrl-label">STARS</span>
+  <input type="range" class="ctrl-slider" id="starsSlider" min="200" max="1200" step="50" value="600">
+  <span class="ctrl-val" id="starsDisplay">600</span>
+  <div class="ctrl-sep"></div>
+  <button class="ctrl-btn active" id="diskBtn" onclick="toggleDisk()">DISK ON</button>
+  <button class="ctrl-btn active" id="lensBtn" onclick="toggleLens()">LENS ON</button>
+</div>
+
+<div class="drag-hint">DRAG THE BLACK HOLE · ADJUST MASS TO CHANGE LENSING</div>
+
+<script>
+const glCanvas = document.getElementById('glCanvas');
+const uiCanvas = document.getElementById('uiCanvas');
+const glCtx = glCanvas.getContext('2d');
+const uiCtx = uiCanvas.getContext('2d');
+
+let W, H;
+
+// ── BLACK HOLE STATE ─────────────────────────────────────────────
+let bh = { x: 0, y: 0 };       // position
+let mass = 1.0;                  // mass multiplier
+let Rs = 80;                     // Schwarzschild radius (pixels, scales with mass)
+let showDisk = true;
+let showLens = true;
+let dragging = false;
+let mouseX = 0, mouseY = 0;
+
+// ── STARS ────────────────────────────────────────────────────────
+let stars = [];
+let numStars = 600;
+
+function generateStars(n) {
+  stars = [];
+  for (let i = 0; i < n; i++) {
+    stars.push({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      r: 0.4 + Math.random() * 1.8,
+      brightness: 0.3 + Math.random() * 0.7,
+      hue: Math.random() < 0.15 ? (Math.random() < 0.5 ? 200 : 30) : 0, // some blue/orange
+      twinkle: Math.random() * Math.PI * 2
+    });
+  }
+}
+
+function resize() {
+  W = glCanvas.width = uiCanvas.width = window.innerWidth;
+  H = glCanvas.height = uiCanvas.height = window.innerHeight;
+  bh.x = W / 2;
+  bh.y = H / 2;
+  generateStars(numStars);
+}
+
+// ── GRAVITATIONAL LENSING ────────────────────────────────────────
+// For each screen pixel, calculate where light actually came from
+// using gravitational deflection angle: α = 2Rs / b
+// where b = impact parameter (closest approach distance)
+// This is a simplified but visually accurate ray-deflection model
+
+function lensedPosition(sx, sy) {
+  const dx = sx - bh.x;
+  const dy = sy - bh.y;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+
+  if (dist < Rs * 0.5) return null; // inside event horizon — black
+
+  // Deflection angle (simplified GR formula)
+  // Real formula: α = 4GM/(c²b) = 2Rs/b
+  // We use Rs scaled by mass for visual effect
+  const b = dist; // impact parameter ≈ distance for far-field
+  const alpha = (2 * Rs * mass) / (b + Rs * 0.1); // avoid div by zero
+
+  // Deflection pulls light toward black hole
+  // Source appears displaced away from BH
+  const deflection = Math.min(alpha, dist * 0.95); // cap to prevent implosion
+  const nx = dx / dist;
+  const ny = dy / dist;
+
+  // Lensed source position: light came from further away
+  return {
+    x: sx + nx * deflection,
+    y: sy + ny * deflection
+  };
+}
+
+// ── ACCRETION DISK ───────────────────────────────────────────────
+let diskAngle = 0;
+const DISK_PARTICLES = 280;
+const diskParticles = [];
+
+function initDisk() {
+  diskParticles.length = 0;
+  for (let i = 0; i < DISK_PARTICLES; i++) {
+    // Innermost stable circular orbit = 3×Rs, outer edge ~8×Rs
+    const r = Rs * (3 + Math.random() * 5);
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 0.008 / Math.sqrt(r / Rs); // Keplerian: v ∝ 1/√r
+    diskParticles.push({
+      r, angle, speed,
+      brightness: 0.4 + Math.random() * 0.6,
+      size: 0.8 + Math.random() * 2.0,
+      // Doppler: approaching side is bluer, receding is redder
+      side: Math.random() < 0.5 ? 1 : -1
+    });
+  }
+}
+
+function drawAccretionDisk() {
+  diskParticles.forEach(p => {
+    p.angle += p.speed;
+
+    // Tilt disk to give it a slight inclination (not face-on)
+    const tiltFactor = 0.35;
+    const px = bh.x + p.r * Math.cos(p.angle);
+    const py = bh.y + p.r * Math.sin(p.angle) * tiltFactor;
+
+    // Doppler colour shift
+    const approachFactor = Math.cos(p.angle); // +1 = approaching, -1 = receding
+    const r = Math.floor(200 + approachFactor * 55);
+    const g = Math.floor(80 + (1 - Math.abs(approachFactor)) * 60);
+    const b_col = Math.floor(20 + (1 - approachFactor) * 30);
+
+    // Fade particles behind the BH (occlusion)
+    const behindBH = Math.sin(p.angle) < 0;
+    const opacity = behindBH
+      ? p.brightness * 0.3
+      : p.brightness * (0.6 + 0.4 * Math.abs(Math.cos(p.angle)));
+
+    glCtx.beginPath();
+    glCtx.arc(px, py, p.size, 0, Math.PI * 2);
+    glCtx.fillStyle = `rgba(${r},${g},${b_col},${opacity})`;
+    glCtx.fill();
+  });
+
+  // Glowing inner edge — photon sphere ring
+  const psR = Rs * 1.5;
+  const grad = glCtx.createRadialGradient(bh.x, bh.y, Rs * 0.9, bh.x, bh.y, psR * 1.4);
+  grad.addColorStop(0, 'rgba(255,160,30,0)');
+  grad.addColorStop(0.4, 'rgba(255,180,60,0.18)');
+  grad.addColorStop(0.7, 'rgba(255,120,10,0.1)');
+  grad.addColorStop(1, 'rgba(255,80,0,0)');
+  glCtx.beginPath();
+  glCtx.arc(bh.x, bh.y, psR * 1.4, 0, Math.PI * 2);
+  glCtx.fillStyle = grad;
+  glCtx.fill();
+}
+
+// ── LENSING RENDER ────────────────────────────────────────────────
+// Pixel-by-pixel lensing is too slow in JS
+// Instead: sample the background at deflected positions for each star
+// This gives a convincing starfield lensing effect efficiently
+
+function drawLensedStars(t) {
+  stars.forEach((star, i) => {
+    const twinkle = 0.7 + 0.3 * Math.sin(t * 0.8 + star.twinkle);
+
+    if (!showLens) {
+      // No lensing — draw normally
+      const alpha = star.brightness * twinkle;
+      if (star.hue === 200) {
+        glCtx.fillStyle = `rgba(150,200,255,${alpha})`;
+      } else if (star.hue === 30) {
+        glCtx.fillStyle = `rgba(255,200,150,${alpha})`;
+      } else {
+        glCtx.fillStyle = `rgba(255,255,255,${alpha})`;
+      }
+      glCtx.beginPath();
+      glCtx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
+      glCtx.fill();
+      return;
+    }
+
+    // Calculate lensed position of this star
+    const dx = star.x - bh.x;
+    const dy = star.y - bh.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist < Rs) return; // star is behind event horizon
+
+    // Deflection: star appears pushed away from BH
+    const b = dist;
+    const alpha_deflect = (2.2 * Rs * mass) / Math.max(b - Rs, Rs * 0.3);
+    const deflect = Math.min(alpha_deflect, dist * 0.9);
+
+    const nx = dx / dist;
+    const ny = dy / dist;
+
+    // Apparent position (where star APPEARS to be)
+    const ax = star.x + nx * deflect * 0.6;
+    const ay = star.y + ny * deflect * 0.6;
+
+    // Stars near the photon sphere get stretched into arcs
+    const stretch = dist < Rs * 4 ? Math.max(1, (Rs * 4 - dist) / (Rs * 0.8)) : 1;
+    const drawR = Math.min(star.r * (1 + stretch * 0.5), star.r * 4);
+
+    // Einstein ring effect: stars very close to photon sphere appear as arcs
+    if (dist < Rs * 3.5 && dist > Rs * 1.1) {
+      // Draw a partial arc instead of a point
+      const arcLen = Math.min(Math.PI * 1.5, Math.PI * (Rs * 3 / dist));
+      const perpAngle = Math.atan2(dy, dx) + Math.PI / 2;
+
+      glCtx.save();
+      glCtx.translate(ax, ay);
+      glCtx.rotate(perpAngle);
+      glCtx.scale(1, 0.3); // flatten into arc
+      glCtx.beginPath();
+      glCtx.arc(0, 0, drawR * 2, -arcLen/2, arcLen/2);
+      const brightness = star.brightness * twinkle * Math.min(2, Rs * 3 / dist);
+      glCtx.strokeStyle = `rgba(255,255,255,${Math.min(brightness, 0.95)})`;
+      glCtx.lineWidth = star.r * 0.8;
+      glCtx.stroke();
+      glCtx.restore();
+    } else {
+      // Normal star, just displaced
+      const alpha = Math.min(star.brightness * twinkle * (1 + deflect / (dist + 1) * 0.5), 0.95);
+      if (star.hue === 200) {
+        glCtx.fillStyle = `rgba(150,200,255,${alpha})`;
+      } else if (star.hue === 30) {
+        glCtx.fillStyle = `rgba(255,200,150,${alpha})`;
+      } else {
+        glCtx.fillStyle = `rgba(255,255,255,${alpha})`;
+      }
+      glCtx.beginPath();
+      glCtx.arc(ax, ay, drawR, 0, Math.PI * 2);
+      glCtx.fill();
+    }
+  });
+}
+
+// ── EVENT HORIZON + SHADOW ────────────────────────────────────────
+function drawBlackHole() {
+  // Gravitational shadow (the "black hole shadow" seen by EHT)
+  const shadowR = Rs * 2.6;
+  const shadowGrad = glCtx.createRadialGradient(bh.x, bh.y, 0, bh.x, bh.y, shadowR);
+  shadowGrad.addColorStop(0, 'rgba(0,0,0,1)');
+  shadowGrad.addColorStop(0.55, 'rgba(0,0,0,1)');
+  shadowGrad.addColorStop(0.75, 'rgba(0,0,0,0.8)');
+  shadowGrad.addColorStop(1, 'rgba(0,0,0,0)');
+  glCtx.beginPath();
+  glCtx.arc(bh.x, bh.y, shadowR, 0, Math.PI * 2);
+  glCtx.fillStyle = shadowGrad;
+  glCtx.fill();
+
+  // Hard event horizon
+  glCtx.beginPath();
+  glCtx.arc(bh.x, bh.y, Rs, 0, Math.PI * 2);
+  glCtx.fillStyle = '#000';
+  glCtx.fill();
+
+  // Photon sphere glow ring
+  glCtx.beginPath();
+  glCtx.arc(bh.x, bh.y, Rs * 1.5, 0, Math.PI * 2);
+  glCtx.strokeStyle = 'rgba(255,140,40,0.25)';
+  glCtx.lineWidth = 2;
+  glCtx.stroke();
+}
+
+// ── UI OVERLAY ────────────────────────────────────────────────────
+function drawUI(t) {
+  uiCtx.clearRect(0, 0, W, H);
+
+  // Custom cursor
+  uiCtx.beginPath();
+  uiCtx.arc(mouseX, mouseY, 6, 0, Math.PI * 2);
+  uiCtx.strokeStyle = 'rgba(255,140,0,0.8)';
+  uiCtx.lineWidth = 1;
+  uiCtx.stroke();
+  uiCtx.beginPath();
+  uiCtx.arc(mouseX, mouseY, 1.5, 0, Math.PI * 2);
+  uiCtx.fillStyle = 'rgba(255,140,0,0.8)';
+  uiCtx.fill();
+
+  // Schwarzschild radius indicator (dashed circle)
+  uiCtx.save();
+  uiCtx.setLineDash([4, 6]);
+  uiCtx.beginPath();
+  uiCtx.arc(bh.x, bh.y, Rs, 0, Math.PI * 2);
+  uiCtx.strokeStyle = 'rgba(255,80,0,0.4)';
+  uiCtx.lineWidth = 1;
+  uiCtx.stroke();
+  uiCtx.setLineDash([]);
+  uiCtx.restore();
+
+  // Photon sphere label
+  if (mass > 0.5) {
+    uiCtx.font = '8px "Share Tech Mono"';
+    uiCtx.fillStyle = 'rgba(255,140,0,0.35)';
+    uiCtx.textAlign = 'left';
+    uiCtx.fillText('PHOTON SPHERE', bh.x + Rs * 1.5 + 8, bh.y - 4);
+    uiCtx.fillText('EVENT HORIZON', bh.x + Rs + 8, bh.y + Rs * 0.3);
+  }
+
+  // Update HUD values
+  document.getElementById('rsVal').textContent = `${Math.round(Rs * mass)} px`;
+  document.getElementById('psVal').textContent = `${Math.round(Rs * mass * 1.5)} px`;
+  document.getElementById('massVal').textContent = `${mass.toFixed(1)} M☉×10⁶`;
+}
+
+// ── ANIMATION LOOP ────────────────────────────────────────────────
+let lastT = 0;
+function animate(t) {
+  const dt = t - lastT;
+  lastT = t;
+
+  // Clear
+  glCtx.fillStyle = '#000';
+  glCtx.fillRect(0, 0, W, H);
+
+  // Update Rs based on mass
+  Rs = 60 * mass;
+  initDisk(); // reinit disk to match current Rs
+
+  // Draw layers back to front
+  drawLensedStars(t * 0.001);
+  if (showDisk) drawAccretionDisk();
+  drawBlackHole();
+  drawUI(t * 0.001);
+
+  requestAnimationFrame(animate);
+}
+
+// ── INTERACTIONS ──────────────────────────────────────────────────
+window.addEventListener('mousemove', e => {
+  mouseX = e.clientX;
+  mouseY = e.clientY;
+  if (dragging) {
+    bh.x = e.clientX;
+    bh.y = e.clientY;
+  }
+});
+
+window.addEventListener('mousedown', e => {
+  const dx = e.clientX - bh.x;
+  const dy = e.clientY - bh.y;
+  if (Math.sqrt(dx*dx + dy*dy) < Rs * 3) {
+    dragging = true;
+    document.body.style.cursor = 'grabbing';
+  }
+});
+
+window.addEventListener('mouseup', () => {
+  dragging = false;
+  document.body.style.cursor = 'none';
+});
+
+// Mass slider
+document.getElementById('massSlider').addEventListener('input', e => {
+  mass = parseFloat(e.target.value);
+  document.getElementById('massDisplay').textContent = mass.toFixed(1) + '×';
+});
+
+// Stars slider
+document.getElementById('starsSlider').addEventListener('input', e => {
+  numStars = parseInt(e.target.value);
+  document.getElementById('starsDisplay').textContent = numStars;
+  generateStars(numStars);
+});
+
+function toggleDisk() {
+  showDisk = !showDisk;
+  const btn = document.getElementById('diskBtn');
+  btn.textContent = showDisk ? 'DISK ON' : 'DISK OFF';
+  btn.classList.toggle('active', showDisk);
+}
+
+function toggleLens() {
+  showLens = !showLens;
+  const btn = document.getElementById('lensBtn');
+  btn.textContent = showLens ? 'LENS ON' : 'LENS OFF';
+  btn.classList.toggle('active', showLens);
+  // Regenerate stars so they snap to correct positions
+  generateStars(numStars);
+}
+
+// ── INIT ──────────────────────────────────────────────────────────
+window.addEventListener('resize', () => { resize(); });
+resize();
+initDisk();
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
